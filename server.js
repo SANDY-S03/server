@@ -1,44 +1,62 @@
 const express = require("express");
 const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
+const socketIo = require("socket.io");
+const { createClient } = require("@supabase/supabase-js");
+require("dotenv").config();
 
 const app = express();
-app.use(cors());
 const server = http.createServer(app);
-const io = new Server(server, {
+const io = socketIo(server, {
   cors: {
     origin: "*",
   },
 });
 
-let channels = {}; // Store active channels and users
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
+const channels = {}; // Store active channels
 
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  console.log("User connected:", socket.id);
 
-  socket.on("createChannel", (channelId) => {
-    if (!channels[channelId]) {
-      channels[channelId] = [];
-    }
-    channels[channelId].push(socket.id);
+  // Create or Join a Channel
+  socket.on("createChannel", async (channelId) => {
     socket.join(channelId);
-    console.log(`User ${socket.id} joined channel ${channelId}`);
+    channels[channelId] = socket.id;
+    console.log(`Channel Created/Joined: ${channelId}`);
+
+    const { error } = await supabase
+      .from("channels")
+      .upsert([{ id: channelId, created_at: new Date().toISOString() }]);
+
+    if (error) {
+      console.error("Supabase Error:", error);
+    }
   });
 
-  socket.on("sendData", ({ channelId, type, content }) => {
-    io.to(channelId).emit("receiveData", { type, content });
+  socket.on("sendData", async (data) => {
+    io.to(data.channelId).emit("receiveData", data);
+
+    const { error } = await supabase.from("messages").insert([
+      {
+        channel_id: data.channelId,
+        type: data.type,
+        content: data.content,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    if (error) {
+      console.error("Supabase Error:", error);
+    }
   });
 
   socket.on("disconnect", () => {
-    for (const channel in channels) {
-      channels[channel] = channels[channel].filter((id) => id !== socket.id);
-      if (channels[channel].length === 0) delete channels[channel];
-    }
     console.log("User disconnected:", socket.id);
   });
 });
 
-server.listen(3000, () => {
-  console.log("Server running on port 3000");
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
