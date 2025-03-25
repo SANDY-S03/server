@@ -2,7 +2,6 @@ const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
 const { createClient } = require("@supabase/supabase-js");
-require("dotenv").config();
 
 const app = express();
 const server = http.createServer(app);
@@ -12,51 +11,43 @@ const io = socketIo(server, {
   },
 });
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-const channels = {}; // Store active channels
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const channels = {};
 
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
+  console.log("User connected");
 
-  // Create or Join a Channel
-  socket.on("createChannel", async (channelId) => {
+  socket.on("createChannel", (channelId) => {
     socket.join(channelId);
     channels[channelId] = socket.id;
-    console.log(`Channel Created/Joined: ${channelId}`);
-
-    const { error } = await supabase
-      .from("channels")
-      .upsert([{ id: channelId, created_at: new Date().toISOString() }]);
-
-    if (error) {
-      console.error("Supabase Error:", error);
-    }
+    console.log(`Channel created: ${channelId}`);
   });
 
   socket.on("sendData", async (data) => {
     io.to(data.channelId).emit("receiveData", data);
 
-    const { error } = await supabase.from("messages").insert([
-      {
-        channel_id: data.channelId,
-        type: data.type,
-        content: data.content,
-        created_at: new Date().toISOString(),
-      },
-    ]);
+    
+    const { error } = await supabase
+      .from("messages")
+      .insert([{ channel_id: data.channelId, content: data.content }]);
 
     if (error) {
-      console.error("Supabase Error:", error);
+      console.error("Supabase Insert Error:", error.message);
     }
   });
 
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
+    console.log("User disconnected");
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
